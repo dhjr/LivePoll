@@ -9,7 +9,7 @@ const socket = io(`http://${typeof window !== 'undefined' ? window.location.host
 // Toast Notification Component removed
 
 // 1. Landing Component
-const LandingView = ({ onCreate, onJoin, error }) => {
+const LandingView = ({ onCreate, onJoin, error, recentPolls }) => {
     const [joinId, setJoinId] = useState('');
 
     return (
@@ -75,6 +75,39 @@ const LandingView = ({ onCreate, onJoin, error }) => {
                     </div>
                      <p className="mt-3 text-slate-400 text-[10px] md:text-xs text-center">Ask host for the 6-character code</p>
                 </div>
+                {/* Recent Polls Section */}
+                {recentPolls && recentPolls.length > 0 && (
+                     <div className="w-full max-w-md mt-6">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="h-px bg-slate-800 flex-1"></div>
+                            <span className="text-slate-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Recent Polls</span>
+                             <div className="h-px bg-slate-800 flex-1"></div>
+                        </div>
+                        <div className="space-y-2">
+                            {recentPolls.map(poll => (
+                                <div 
+                                    key={poll._id}
+                                    onClick={() => onJoin(poll.pollId)}
+                                    className="group bg-slate-900/30 border border-slate-800/50 hover:border-purple-500/30 p-3 rounded-xl flex items-center justify-between cursor-pointer transition-all hover:bg-slate-800/50"
+                                >
+                                    <div className="text-left">
+                                        <h3 className="text-slate-300 font-bold text-sm group-hover:text-purple-300 transition-colors truncate max-w-[200px]">
+                                            {poll.title}
+                                        </h3>
+                                        <span className="text-slate-600 text-[10px] uppercase tracking-wider">
+                                            ID: {poll.pollId}
+                                        </span>
+                                    </div>
+                                    <div className="text-purple-500/50 group-hover:text-purple-400 group-hover:translate-x-1 transition-all">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -94,14 +127,27 @@ export default function PollPage() {
   const [newOptions, setNewOptions] = useState(['', '']);
   const [error, setError] = useState(null);
 
+  const [recentPolls, setRecentPolls] = useState([]);
+
   useEffect(() => {
+    // Fetch immediately if already connected
+    if (socket.connected) {
+        socket.emit('get_recent_polls');
+    }
+
     // Listen for room entry events
     socket.on('connect', () => {
         console.log("Socket connected:", socket.id);
+        socket.emit('get_recent_polls'); // Fetch on connect
     });
 
     socket.on('disconnect', () => {
         console.log("Socket disconnected");
+    });
+    
+    socket.on('recent_polls', (polls) => {
+        console.log("Received recent polls:", polls);
+        setRecentPolls(polls);
     });
 
     socket.on('poll_created', ({ pollId, pollData }) => {
@@ -116,6 +162,8 @@ export default function PollPage() {
         setView('POLL');
         setShowCreateForm(false);
         setError(null);
+        // Refresh recent polls list so others see it (if we were on landing)
+        // ideally we broadcast 'poll_created' to everyone so they can refresh
     });
 
     socket.on('poll_joined', ({ pollId, pollData, userPreviousVote }) => {
@@ -250,7 +298,12 @@ export default function PollPage() {
                     </div>
                  </div>
              ) : (
-                 <LandingView onCreate={() => { setShowCreateForm(true); setError(null); }} onJoin={handleJoin} error={error} />
+                 <LandingView 
+                    onCreate={() => { setShowCreateForm(true); setError(null); }} 
+                    onJoin={handleJoin} 
+                    error={error} 
+                    recentPolls={recentPolls}
+                />
              )}
         </main>
       );
