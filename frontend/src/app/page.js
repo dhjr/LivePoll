@@ -4,12 +4,12 @@ import { io } from 'socket.io-client';
 import { Bar } from 'react-chartjs-2';
 import 'chart.js/auto';
 
-const socket = io('http://192.168.0.106:3001');
+const socket = io(`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:3001`);
 
 // Toast Notification Component removed
 
 // 1. Landing Component
-const LandingView = ({ onCreate, onJoin }) => {
+const LandingView = ({ onCreate, onJoin, error }) => {
     const [joinId, setJoinId] = useState('');
 
     return (
@@ -42,6 +42,16 @@ const LandingView = ({ onCreate, onJoin }) => {
 
                 {/* Join Section */}
                 <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-700/50 p-5 md:p-6 rounded-3xl">
+                    
+                    {error && (
+                        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs md:text-sm flex items-center justify-center gap-2 animate-fade-in">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            {error}
+                        </div>
+                    )}
+
                     <div className="flex flex-col sm:flex-row gap-2">
                         <input 
                             value={joinId}
@@ -82,9 +92,20 @@ export default function PollPage() {
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newOptions, setNewOptions] = useState(['', '']);
+  const [error, setError] = useState(null);
+
   useEffect(() => {
     // Listen for room entry events
+    socket.on('connect', () => {
+        console.log("Socket connected:", socket.id);
+    });
+
+    socket.on('disconnect', () => {
+        console.log("Socket disconnected");
+    });
+
     socket.on('poll_created', ({ pollId, pollData }) => {
+        console.log("Poll created event received:", pollId);
         setPollId(pollId);
         setPollData({
             title: pollData.title,
@@ -94,6 +115,7 @@ export default function PollPage() {
         });
         setView('POLL');
         setShowCreateForm(false);
+        setError(null);
     });
 
     socket.on('poll_joined', ({ pollId, pollData, userPreviousVote }) => {
@@ -106,6 +128,7 @@ export default function PollPage() {
         });
         setSelectedOption(userPreviousVote);
         setView('POLL');
+        setError(null);
     });
 
     socket.on('update_votes', (updatedVotes) => {
@@ -115,10 +138,13 @@ export default function PollPage() {
 
 
     socket.on('error', (msg) => {
-        alert(msg);
+        console.log("Socket error received:", msg);
+        setError(msg);
     });
 
     return () => {
+      socket.off('connect');
+      socket.off('disconnect');
       socket.off('poll_created');
       socket.off('poll_joined');
       socket.off('update_votes');
@@ -128,9 +154,25 @@ export default function PollPage() {
 
   const handleCreateSubmit = (e) => {
     e.preventDefault();
+    console.log("Submit clicked. Valid options:", newOptions.filter(o => o.trim()));
+    setError(null);
     const validOpts = newOptions.filter(o => o.trim());
+    
+    // Check for duplicates
+    const uniqueOpts = new Set(validOpts);
+    if (uniqueOpts.size !== validOpts.length) {
+        console.log("Duplicate options found");
+        setError("Poll options must be unique");
+        return;
+    }
+
+    console.log("Form check:", { newTitle, newDesc, validOptsCount: validOpts.length });
+
     if (newTitle && newDesc && validOpts.length >= 2) {
+        console.log("Emitting create_poll");
         socket.emit('create_poll', { title: newTitle, description: newDesc, options: validOpts });
+    } else {
+        console.log("Form invalid for some reason");
     }
   };
 
@@ -154,6 +196,7 @@ export default function PollPage() {
       const copy = [...newOptions];
       copy[i] = v;
       setNewOptions(copy);
+      if (error) setError(null);
   };
   const handleRemoveOption = (i) => setNewOptions(newOptions.filter((_, idx) => idx !== i));
   const isFormValid = newTitle.trim() && newDesc.trim() && newOptions.filter(o => o.trim()).length >= 2;
@@ -168,6 +211,16 @@ export default function PollPage() {
                  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <div className="bg-slate-900 border border-purple-500/30 p-6 md:p-8 rounded-3xl w-full max-w-lg shadow-[0_0_50px_rgba(168,85,247,0.2)] overflow-y-auto max-h-[90vh]">
                         <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-6">Create New Poll</h2>
+                        
+                        {error && (
+                            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-2 animate-fade-in">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                {error}
+                            </div>
+                        )}
+
                         <form onSubmit={handleCreateSubmit} className="space-y-4">
                             <div>
                                 <label className="block text-slate-400 text-xs md:text-sm mb-1 uppercase tracking-wider">Title</label>
@@ -190,14 +243,14 @@ export default function PollPage() {
                                 <button type="button" onClick={handleAddOption} className="mt-3 text-xs md:text-sm text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1">+ Add Option</button>
                             </div>
                             <div className="flex gap-3 pt-4">
-                                <button type="button" onClick={() => setShowCreateForm(false)} className="flex-1 px-6 py-3 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm md:text-base">Cancel</button>
+                                <button type="button" onClick={() => { setShowCreateForm(false); setError(null); }} className="flex-1 px-6 py-3 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm md:text-base">Cancel</button>
                                 <button type="submit" disabled={!isFormValid} className={`flex-1 px-6 py-3 rounded-xl font-bold transition-all text-sm md:text-base ${isFormValid ? 'bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}>Launch</button>
                             </div>
                         </form>
                     </div>
                  </div>
              ) : (
-                 <LandingView onCreate={() => setShowCreateForm(true)} onJoin={handleJoin} />
+                 <LandingView onCreate={() => { setShowCreateForm(true); setError(null); }} onJoin={handleJoin} error={error} />
              )}
         </main>
       );
@@ -231,7 +284,7 @@ export default function PollPage() {
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 sm:p-8 flex flex-col items-center justify-center font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden">
 
         
-        <button onClick={() => setView('LANDING')} className="absolute top-4 left-4 md:top-6 md:left-6 text-slate-400 hover:text-white transition-colors flex items-center gap-2 text-sm md:text-base">← Back</button>
+        <button onClick={() => { setView('LANDING'); socket.emit('leave_poll'); }} className="absolute top-4 left-4 md:top-6 md:left-6 text-slate-400 hover:text-white transition-colors flex items-center gap-2 text-sm md:text-base">← Back</button>
         
         <div className="absolute top-4 right-4 md:top-6 md:right-6 bg-slate-800/80 px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-purple-500/30 flex items-center gap-2 backdrop-blur-md">
             <span className="text-[10px] md:text-xs text-slate-400 uppercase tracking-wider">Poll ID:</span>

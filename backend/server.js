@@ -6,7 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { 
   cors: { 
-    origin: ["http://localhost:3000", "http://192.168.0.106:3000"],
+    origin: ["http://localhost:3000", "http://192.168.0.106:3000", "http://10.135.184.72:3000"],
     methods: ["GET", "POST"]
   } 
 });
@@ -23,9 +23,44 @@ io.on('connection', (socket) => {
   // io.emit('user_connected', userIP); // Disabled per user request
 
   // Handle disconnect
+  socket.on('disconnecting', () => {
+    // Check all rooms this user is in
+    for (const room of socket.rooms) {
+        if (room.startsWith('poll_')) {
+            const pollId = room.split('_')[1];
+            // When disconnecting, the socket is still in the room. 
+            // If size is 1, it's just this user, so the room will be empty after they leave.
+            const roomObj = io.sockets.adapter.rooms.get(room);
+            if (roomObj && roomObj.size === 1) {
+                if (polls.has(pollId)) {
+                    polls.delete(pollId);
+                    console.log(`Poll deleted (last user disconnected): ${pollId}`);
+                }
+            }
+        }
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${userIP}`);
-    // io.emit('user_disconnected', userIP);
+  });
+  
+  // Explicit Leave Poll
+  socket.on('leave_poll', () => {
+      const pollId = getPollId();
+      if (pollId) {
+          socket.leave(`poll_${pollId}`);
+          console.log(`User left poll: ${pollId}`);
+          
+          // Check if room is now empty
+          const room = io.sockets.adapter.rooms.get(`poll_${pollId}`);
+          if (!room || room.size === 0) {
+              if (polls.has(pollId)) {
+                  polls.delete(pollId);
+                  console.log(`Poll deleted (last user left): ${pollId}`);
+              }
+          }
+      }
   });
 
   // Helpers to get current room/poll
@@ -36,6 +71,13 @@ io.on('connection', (socket) => {
   };
 
   socket.on('create_poll', (data) => {
+    // Validate unique options
+    const uniqueOptions = new Set(data.options);
+    if (uniqueOptions.size !== data.options.length) {
+        socket.emit('error', 'Poll options must be unique');
+        return;
+    }
+
     const pollId = generatePollId();
     const newPoll = {
       title: data.title,
