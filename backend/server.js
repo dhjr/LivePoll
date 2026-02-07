@@ -1,12 +1,35 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-require("dotenv").config();
+const jwt = require("jsonwebtoken");
+const cors = require("cors");
 const connectDB = require("./db");
 const Poll = require("./models/Poll");
+require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Connect to Database
+connectDB();
+
+const SECRET_KEY = process.env.JWT_SECRET || "your-secret-key-change-this";
+
+// Middleware
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(",")
+      : [
+          "http://localhost:3000",
+          "http://192.168.0.106:3000",
+          "http://10.135.184.72:3000",
+        ],
+    methods: ["GET", "POST"],
+  }),
+);
+app.use(express.json());
+
 const io = new Server(server, {
   cors: {
     origin: process.env.CORS_ORIGIN
@@ -20,145 +43,110 @@ const io = new Server(server, {
   },
 });
 
-connectDB();
-
 const generatePollId = () =>
   Math.random().toString(36).substring(2, 8).toUpperCase();
 
+// --- HTTP Routes ---
+
+// Guest Login
+app.post("/login", (req, res) => {
+  const { username } = req.body;
+
+  if (!username || username.trim() === "") {
+    return res.status(400).json({ error: "Username is required" });
+  }
+
+  // Generate a unique ID for this session
+  const userId = `${username}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+  // Create Token
+  const token = jwt.sign({ userId, username }, SECRET_KEY, {
+    expiresIn: "24h",
+  });
+
+  res.json({ token, userId, username });
+});
+
+// --- Socket.IO Middleware ---
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+
+  if (!token) {
+    return next(new Error("Authentication error: No token provided"));
+  }
+
+  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+    if (err) {
+      return next(new Error("Authentication error: Invalid token"));
+    }
+    socket.user = decoded; // Attach user data to socket
+    next();
+  });
+});
+
+// --- Socket Events ---
+
 io.on("connection", (socket) => {
-  const userIP = socket.handshake.address;
-  /* original line 21 was the redeclaration */
-  console.log(`User connected: ${userIP}`);
+  const { userId, username } = socket.user;
+  console.log(`User connected: ${username} (${userId})`);
 
-  const removeVoteIfLastClient = async (pollId, socket) => {
-    const userIP = socket.handshake.address;
-    const roomName = `poll_${pollId}`;
-    const room = io.sockets.adapter.rooms.get(roomName);
-
-    let otherSocketsWithSameIP = 0;
-    if (room) {
-      for (const clientId of room) {
-        // Don't count the current socket if it's the one leaving
-        if (clientId === socket.id) continue;
-
-        const clientSocket = io.sockets.sockets.get(clientId);
-        if (clientSocket && clientSocket.handshake.address === userIP) {
-          otherSocketsWithSameIP++;
-        }
-      }
-    }
-
-    // If no other sockets with same IP, remove vote
-    if (otherSocketsWithSameIP === 0) {
-      try {
-        const poll = await Poll.findOne({ pollId });
-        if (poll) {
-          // Check if user voted in this poll
-          const voteEntry = poll.userVotes.find((v) => v.ip === userIP);
-          if (voteEntry) {
-            const option = voteEntry.option;
-            // Decrement result
-            const currentCount = poll.results.get(option) || 0;
-            poll.results.set(option, Math.max(0, currentCount - 1));
-
-            // Remove from userVotes array
-            poll.userVotes = poll.userVotes.filter((v) => v.ip !== userIP);
-
-            await poll.save();
-            io.to(roomName).emit("update_votes", poll.results);
-            console.log(
-              `Vote removed for ${userIP} in poll ${pollId} (User left)`,
-            );
-          }
-        }
-      } catch (err) {
-        console.error("Error removing vote on exit:", err);
-      }
-    }
-  };
-
-  // Handle disconnect
-  socket.on("disconnecting", async () => {
-    // Check all rooms this user is in
-    for (const room of socket.rooms) {
-      if (room.startsWith("poll_")) {
-        const pollId = room.split("_")[1];
-
-        await removeVoteIfLastClient(pollId, socket);
-
-        // AUTO-DELETION LOGIC (Optional with DB, but requested earlier)
-        // If strictly persisting, we might NOT want to delete.
-        // But if user wants cleanup:
-        /*
-            const roomObj = io.sockets.adapter.rooms.get(room);
-            if (roomObj && roomObj.size === 1) { // 1 because this socket is still in it
-                // await Poll.deleteOne({ pollId });
-                // console.log(`Poll deleted (last user disconnected): ${pollId}`);
-            }
-            */
-      }
-    }
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`User disconnected: ${userIP}`);
-  });
-
-  // Explicit Leave Poll
-  socket.on("leave_poll", async () => {
-    const pollId = getPollId();
-    if (pollId) {
-      await removeVoteIfLastClient(pollId, socket);
-
-      socket.leave(`poll_${pollId}`);
-      console.log(`User left poll: ${pollId}`);
-
-      /*
-          const room = io.sockets.adapter.rooms.get(`poll_${pollId}`);
-          if (!room || room.size === 0) {
-             // await Poll.deleteOne({ pollId });
-             // console.log(`Poll deleted (last user left): ${pollId}`);
-          }
-          */
-    }
-  });
+  // Helper to remove vote if user disconnects (Optional - simplified for Guest Mode)
+  // In a robust "Guest" system, we might NOT want to remove votes on disconnect
+  // immediately if we want to allow reconnects.
+  // However, for "live" polling where presence matters, we often keep the vote
+  // UNLESS explicitly retracted, or we treat them as persistent.
+  // The user requested: "if we refresh the page, it shouldn't be an issue".
+  // So we should NOT remove votes on disconnect/refresh automatically,
+  // because the user will reconnect with the SAME token/userId.
 
   // Helpers to get current room/poll
   const getPollId = () => {
-    // Find room starting with "poll_"
     const room = Array.from(socket.rooms).find((r) => r.startsWith("poll_"));
     return room ? room.split("_")[1] : null;
   };
 
-  socket.on("create_poll", async (data) => {
-    // Validate unique options
-    const uniqueOptions = new Set(data.options);
-    if (uniqueOptions.size !== data.options.length) {
-      socket.emit("error", "Poll options must be unique");
-      return;
-    }
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${username}`);
+  });
 
-    const pollId = generatePollId();
-    const initialResults = {};
-    data.options.forEach((opt) => (initialResults[opt] = 0));
+  socket.on("create_poll", async (data) => {
     try {
-      const newPoll = await Poll.create({
+      // Validate unique options
+      const uniqueOptions = new Set(data.options);
+      if (uniqueOptions.size !== data.options.length) {
+        socket.emit("error", "Poll options must be unique");
+        return;
+      }
+
+      const pollId = generatePollId();
+      const initialResults = {};
+      data.options.forEach((opt) => (initialResults[opt] = 0));
+
+      const newPoll = new Poll({
         pollId,
         title: data.title,
         description: data.description,
         options: data.options,
         results: initialResults,
-        userVotes: [],
+        userVotes: [], // Stores { userId, option }
+        createdBy: userId, // Track creator
+        createdAt: new Date(),
       });
+
+      await newPoll.save();
+
       socket.join(`poll_${pollId}`);
-      // Note: mongoose object needs .toObject() or just spread properties carefully
+      // Helper to convert Map to Object for frontend
+      const pollData = newPoll.toObject();
+
       socket.emit("poll_created", {
         pollId,
-        pollData: { ...newPoll.toObject(), userVotes: undefined },
+        pollData: { ...pollData, userVotes: undefined },
       });
-      console.log(`Poll created (DB): ${pollId}`);
+      console.log(`Poll created (DB): ${pollId} by ${username}`);
     } catch (err) {
-      console.error(err);
+      console.error("Error creating poll:", err);
       socket.emit("error", "Failed to create poll");
     }
   });
@@ -171,7 +159,7 @@ io.on("connection", (socket) => {
         socket.join(`poll_${pollId}`);
 
         // Find if this user voted
-        const voteEntry = poll.userVotes.find((v) => v.ip === userIP);
+        const voteEntry = poll.userVotes.find((v) => v.userId === userId);
 
         socket.emit("poll_joined", {
           pollId,
@@ -179,17 +167,17 @@ io.on("connection", (socket) => {
             title: poll.title,
             description: poll.description,
             options: poll.options,
-            results: poll.results,
+            results: poll.results, // Mongoose Map becomes object-like in JSON
           },
           userPreviousVote: voteEntry ? voteEntry.option : null,
         });
-        console.log(`User joined poll: ${pollId}`);
+        console.log(`User ${username} joined poll: ${pollId}`);
       } else {
         socket.emit("error", "Poll not found");
       }
     } catch (err) {
-      console.error(err);
-      socket.emit("error", "Error joining poll");
+      console.error("Error joining poll:", err);
+      socket.emit("error", "Failed to join poll");
     }
   });
 
@@ -202,29 +190,32 @@ io.on("connection", (socket) => {
       if (!poll) return;
 
       // 1. Remove old vote if exists
-      // Filter out any existing vote from this IP
-      const oldVote = poll.userVotes.find((v) => v.ip === userIP);
+      const oldVoteIndex = poll.userVotes.findIndex((v) => v.userId === userId);
 
-      if (oldVote) {
+      if (oldVoteIndex !== -1) {
+        const oldVote = poll.userVotes[oldVoteIndex];
         const oldOption = oldVote.option;
+
+        // Decrement result
+        // Mongoose Map .get() / .set()
         const currentCount = poll.results.get(oldOption) || 0;
         poll.results.set(oldOption, Math.max(0, currentCount - 1));
 
         // Remove the old entry
-        poll.userVotes = poll.userVotes.filter((v) => v.ip !== userIP);
+        poll.userVotes.splice(oldVoteIndex, 1);
       }
 
       // 2. Add new vote
       const currentOptionCount = poll.results.get(option) || 0;
       poll.results.set(option, currentOptionCount + 1);
-      poll.userVotes.push({ ip: userIP, option });
+      poll.userVotes.push({ userId, option });
 
-      // 3. Save
       await poll.save();
 
       io.to(`poll_${pollId}`).emit("update_votes", poll.results);
+      console.log(`Vote cast manually by ${username} in poll ${pollId}`);
     } catch (err) {
-      console.error(err);
+      console.error("Error casting vote:", err);
     }
   });
 
@@ -236,35 +227,35 @@ io.on("connection", (socket) => {
       const poll = await Poll.findOne({ pollId });
       if (!poll) return;
 
-      const voteEntry = poll.userVotes.find((v) => v.ip === userIP);
+      const voteEntryIndex = poll.userVotes.findIndex(
+        (v) => v.userId === userId,
+      );
 
-      if (voteEntry) {
+      if (voteEntryIndex !== -1) {
+        const voteEntry = poll.userVotes[voteEntryIndex];
         const oldOption = voteEntry.option;
+
         const currentCount = poll.results.get(oldOption) || 0;
         poll.results.set(oldOption, Math.max(0, currentCount - 1));
 
-        poll.userVotes = poll.userVotes.filter((v) => v.ip !== userIP);
+        poll.userVotes.splice(voteEntryIndex, 1);
 
         await poll.save();
+
         io.to(`poll_${pollId}`).emit("update_votes", poll.results);
+        console.log(`Vote retracted by ${username} in poll ${pollId}`);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Error retracting vote:", err);
     }
-  }); // End retract_vote
+  });
 
-  socket.on("get_recent_polls", async () => {
-    console.log("Received get_recent_polls request");
-    try {
-      const recentPolls = await Poll.find()
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .select("pollId title createdAt options"); // Select fields to send
-
-      console.log(`Sending ${recentPolls.length} recent polls`);
-      socket.emit("recent_polls", recentPolls);
-    } catch (err) {
-      console.error("Error fetching recent polls:", err);
+  // Explicit Leave Poll
+  socket.on("leave_poll", () => {
+    const pollId = getPollId();
+    if (pollId) {
+      socket.leave(`poll_${pollId}`);
+      console.log(`User ${username} left poll: ${pollId}`);
     }
   });
 });

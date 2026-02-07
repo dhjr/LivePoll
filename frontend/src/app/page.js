@@ -4,107 +4,121 @@ import { io } from "socket.io-client";
 import { Bar } from "react-chartjs-2";
 import "chart.js/auto";
 
-const socket = io(
+const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-    `http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:3001`,
-);
+  `http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:3001`;
 
-// Toast Notification Component removed
+const socket = io(BACKEND_URL, {
+  autoConnect: false, // Wait for token
+});
 
-// 1. Landing Component
-const LandingView = ({ onCreate, onJoin, error, recentPolls }) => {
-  const [joinId, setJoinId] = useState("");
-  const hasRecent = recentPolls && recentPolls.length > 0;
+// 1. Login Component
+const LoginView = ({ onJoin }) => {
+  const [name, setName] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: name }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Login failed");
+      }
+
+      onJoin(data); // { token, userId, username }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
-    <div
-      className={`w-full ${hasRecent ? "max-w-5xl" : "max-w-md"} transition-all duration-300 animate-fade-in-up px-4`}
-    >
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 flex flex-col items-center justify-center p-4 text-white font-sans">
+      <div className="w-full max-w-md bg-slate-900/50 backdrop-blur-xl border border-purple-500/20 p-8 rounded-3xl shadow-2xl animate-fade-in-up">
+        <header className="text-center mb-8">
+          <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 tracking-tight">
+            LIVE POLL
+          </h1>
+          <p className="text-purple-200 uppercase tracking-[0.2em] text-xs font-semibold opacity-80">
+            Enter your name to join
+          </p>
+        </header>
+
+        {error && (
+          <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-4 text-white text-center font-bold text-lg focus:outline-none focus:border-purple-500 focus:bg-slate-800 transition-colors placeholder:text-slate-600 focus:placeholder-transparent"
+              placeholder="Your Name"
+              maxLength={15}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isLoading || !name.trim()}
+            className={`w-full py-4 rounded-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-900/30 text-white text-lg transition-all ${
+              isLoading || !name.trim()
+                ? "opacity-50 cursor-not-allowed"
+                : "hover:scale-[1.02] active:scale-[0.98]"
+            }`}
+          >
+            {isLoading ? "Joining..." : "Continue"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// 2. Landing Component (Options to Create or Join)
+const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
+  const [joinId, setJoinId] = useState("");
+
+  return (
+    <div className="w-full max-w-md transition-all duration-300 animate-fade-in-up px-4">
       <header className="text-center mb-8 md:mb-10">
         <h1 className="text-4xl md:text-6xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 drop-shadow-sm tracking-tight">
           LIVE POLL
         </h1>
-        <p className="text-purple-200 uppercase tracking-[0.2em] text-[10px] md:text-xs font-semibold opacity-80">
-          Create or Join a Room
-        </p>
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-purple-200 uppercase tracking-[0.2em] text-[10px] md:text-xs font-semibold opacity-80">
+            Welcome,{" "}
+            <span className="text-white font-bold">{user?.username}</span>
+          </p>
+          <button
+            onClick={onLogout}
+            className="text-xs text-slate-500 hover:text-slate-300 underline"
+          >
+            Switch Account
+          </button>
+        </div>
       </header>
 
-      <div
-        className={`grid grid-cols-1 ${hasRecent ? "md:grid-cols-12" : ""} gap-6 md:gap-8 items-start`}
-      >
-        {/* Recent Polls Section (Left on Desktop, Bottom on Mobile) */}
-        {hasRecent && (
-          <div className="md:col-span-5 w-full order-last md:order-first">
-            <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/60 p-5 rounded-3xl h-full">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
-                <span className="text-slate-300 text-xs font-bold uppercase tracking-wider">
-                  Recent Sessions
-                </span>
-              </div>
-
-              <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
-                {recentPolls.map((poll) => (
-                  <div
-                    key={poll._id}
-                    onClick={() => onJoin(poll.pollId)}
-                    className="group bg-slate-900/50 border border-slate-800 hover:border-purple-500/40 hover:bg-slate-800 p-3 rounded-xl flex items-center justify-between cursor-pointer transition-all duration-200"
-                  >
-                    <div className="text-left min-w-0">
-                      <h3 className="text-slate-200 font-bold text-sm group-hover:text-purple-300 transition-colors truncate">
-                        {poll.title}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs font-mono text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded">
-                          {poll.pollId}
-                        </span>
-                        <span className="text-[10px] text-slate-600">
-                          {new Date(poll.createdAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="pl-3 text-slate-600 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5l7 7-7 7"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
+      <div className={`grid grid-cols-1 gap-6 md:gap-8 items-start`}>
         {/* Main Action Section (Center/Right) */}
-        <div
-          className={`${hasRecent ? "md:col-span-7" : "w-full max-w-md mx-auto"} space-y-6`}
-        >
+        <div className={`w-full max-w-md mx-auto space-y-6`}>
           {/* Create Section */}
           <div className="bg-slate-900/50 backdrop-blur-xl border border-purple-500/20 p-6 md:p-8 rounded-[2rem] hover:border-purple-500/40 transition-all shadow-xl shadow-black/20 group">
             <button
@@ -166,7 +180,9 @@ const LandingView = ({ onCreate, onJoin, error, recentPolls }) => {
                   value={joinId}
                   onChange={(e) => setJoinId(e.target.value.toUpperCase())}
                   onKeyDown={(e) =>
-                    e.key === "Enter" && joinId.length >= 6 && onJoin(joinId)
+                    e.key === "Enter" &&
+                    joinId.length >= 6 &&
+                    onJoinPoll(joinId)
                   }
                   placeholder="ENTER CODE"
                   className="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-10 pr-4 py-4 text-white text-center font-mono tracking-[0.2em] text-lg focus:outline-none focus:border-purple-500 focus:bg-slate-800 transition-colors uppercase placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-600"
@@ -174,7 +190,7 @@ const LandingView = ({ onCreate, onJoin, error, recentPolls }) => {
                 />
               </div>
               <button
-                onClick={() => onJoin(joinId)}
+                onClick={() => onJoinPoll(joinId)}
                 disabled={joinId.length < 6}
                 className={`w-full sm:w-auto px-8 py-4 sm:py-0 rounded-xl font-bold transition-all flex items-center justify-center ${
                   joinId.length >= 6
@@ -186,7 +202,7 @@ const LandingView = ({ onCreate, onJoin, error, recentPolls }) => {
               </button>
             </div>
             <p className="mt-4 text-slate-500 text-xs text-center">
-              Enter the 6-character code provided by host
+              Enter the 6-character code
             </p>
           </div>
         </div>
@@ -195,9 +211,10 @@ const LandingView = ({ onCreate, onJoin, error, recentPolls }) => {
   );
 };
 
-// 2. Main Page Component
+// 3. Main Page Component
 export default function PollPage() {
-  const [view, setView] = useState("LANDING"); // LANDING, CREATE, POLL
+  const [user, setUser] = useState(null); // { token, username, userId }
+  const [view, setView] = useState("LOGIN"); // LOGIN, LANDING, CREATE, POLL
   const [pollId, setPollId] = useState(null);
   const [pollData, setPollData] = useState({
     title: "",
@@ -214,27 +231,62 @@ export default function PollPage() {
   const [newOptions, setNewOptions] = useState(["", ""]);
   const [error, setError] = useState(null);
 
-  const [recentPolls, setRecentPolls] = useState([]);
+  // Initialize Auth on Mount
+  useEffect(() => {
+    const storedToken = localStorage.getItem("poll_token");
+    const storedUser = localStorage.getItem("poll_user_data");
+
+    if (storedToken && storedUser) {
+      const userData = JSON.parse(storedUser);
+      setUser(userData);
+      connectSocket(storedToken);
+      setView("LANDING");
+    } else {
+      setView("LOGIN");
+    }
+  }, []);
+
+  const connectSocket = (token) => {
+    socket.auth = { token };
+    socket.connect();
+  };
+
+  const handleLogin = (userData) => {
+    // Save to storage
+    localStorage.setItem("poll_token", userData.token);
+    localStorage.setItem("poll_user_data", JSON.stringify(userData));
+
+    setUser(userData);
+    connectSocket(userData.token);
+    setView("LANDING");
+  };
+
+  const handleLogout = () => {
+    socket.disconnect();
+    localStorage.removeItem("poll_token");
+    localStorage.removeItem("poll_user_data");
+    setUser(null);
+    setView("LOGIN");
+    setPollId(null);
+  };
 
   useEffect(() => {
-    // Fetch immediately if already connected
-    if (socket.connected) {
-      socket.emit("get_recent_polls");
-    }
-
     // Listen for room entry events
+    socket.on("connect_error", (err) => {
+      console.log("Connection Error:", err.message);
+      if (err.message.includes("Authentication")) {
+        // Invalid token (expired or server restart)
+        handleLogout();
+        setError("Session expired. Please login again.");
+      }
+    });
+
     socket.on("connect", () => {
       console.log("Socket connected:", socket.id);
-      socket.emit("get_recent_polls"); // Fetch on connect
     });
 
     socket.on("disconnect", () => {
       console.log("Socket disconnected");
-    });
-
-    socket.on("recent_polls", (polls) => {
-      console.log("Received recent polls:", polls);
-      setRecentPolls(polls);
     });
 
     socket.on("poll_created", ({ pollId, pollData }) => {
@@ -249,8 +301,6 @@ export default function PollPage() {
       setView("POLL");
       setShowCreateForm(false);
       setError(null);
-      // Refresh recent polls list so others see it (if we were on landing)
-      // ideally we broadcast 'poll_created' to everyone so they can refresh
     });
 
     socket.on("poll_joined", ({ pollId, pollData, userPreviousVote }) => {
@@ -276,6 +326,7 @@ export default function PollPage() {
     });
 
     return () => {
+      socket.off("connect_error");
       socket.off("connect");
       socket.off("disconnect");
       socket.off("poll_created");
@@ -287,40 +338,26 @@ export default function PollPage() {
 
   const handleCreateSubmit = (e) => {
     e.preventDefault();
-    console.log(
-      "Submit clicked. Valid options:",
-      newOptions.filter((o) => o.trim()),
-    );
     setError(null);
     const validOpts = newOptions.filter((o) => o.trim());
 
     // Check for duplicates
     const uniqueOpts = new Set(validOpts);
     if (uniqueOpts.size !== validOpts.length) {
-      console.log("Duplicate options found");
       setError("Poll options must be unique");
       return;
     }
 
-    console.log("Form check:", {
-      newTitle,
-      newDesc,
-      validOptsCount: validOpts.length,
-    });
-
     if (newTitle && newDesc && validOpts.length >= 2) {
-      console.log("Emitting create_poll");
       socket.emit("create_poll", {
         title: newTitle,
         description: newDesc,
         options: validOpts,
       });
-    } else {
-      console.log("Form invalid for some reason");
     }
   };
 
-  const handleJoin = (id) => {
+  const handleJoinPoll = (id) => {
     if (id) socket.emit("join_poll", id);
   };
 
@@ -350,6 +387,10 @@ export default function PollPage() {
     newOptions.filter((o) => o.trim()).length >= 2;
 
   // Render Views
+  if (view === "LOGIN") {
+    return <LoginView onJoin={handleLogin} />;
+  }
+
   if (view === "LANDING") {
     return (
       <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 md:p-6 flex flex-col items-center justify-center font-sans overflow-y-auto">
@@ -464,9 +505,10 @@ export default function PollPage() {
               setShowCreateForm(true);
               setError(null);
             }}
-            onJoin={handleJoin}
+            onJoinPoll={handleJoinPoll}
             error={error}
-            recentPolls={recentPolls}
+            user={user}
+            onLogout={handleLogout}
           />
         )}
       </main>
