@@ -47,10 +47,10 @@ const LoginView = ({ onJoin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 flex flex-col items-center justify-center p-4 text-white font-sans">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 flex flex-col items-center justify-center p-4 text-white font-sans">
       <div className="w-full max-w-md bg-slate-900/50 backdrop-blur-xl border border-purple-500/20 p-8 rounded-3xl shadow-2xl animate-fade-in-up">
         <header className="text-center mb-8">
-          <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 tracking-tight">
+          <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-linear-to-r from-purple-400 to-pink-300 tracking-tight">
             LIVE POLL
           </h1>
           <p className="text-purple-200 uppercase tracking-[0.2em] text-xs font-semibold opacity-80">
@@ -250,6 +250,34 @@ const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
   );
 };
 
+// Active Users Sidebar
+const ActiveUsersSidebar = ({ users }) => (
+  <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-slate-900/90 backdrop-blur-xl border-l border-slate-700/50 p-6 overflow-y-auto animate-fade-in-right z-40">
+    <h3 className="text-xl font-bold bg-linear-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-6">
+      Active Users
+      <span className="ml-2 text-sm text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
+        {users.length}
+      </span>
+    </h3>
+    <div className="space-y-3">
+      {users.map((u, idx) => (
+        <div
+          key={idx}
+          className="flex items-center gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-700/30"
+        >
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xs font-bold text-white uppercase shadow-lg">
+            {u.username.charAt(0)}
+          </div>
+          <span className="text-sm font-medium text-slate-300 truncate">
+            {u.username}
+          </span>
+          <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] ml-auto"></div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 // 3. Main Page Component
 export default function PollPage() {
   const [user, setUser] = useState(null); // { token, username, userId }
@@ -264,12 +292,16 @@ export default function PollPage() {
   const [selectedOption, setSelectedOption] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [toast, setToast] = useState(null); // { message }
+  const [activeUsers, setActiveUsers] = useState([]);
 
   // Poll Creation Form State
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newOptions, setNewOptions] = useState(["", ""]);
   const [error, setError] = useState(null);
+
+  // Debounce Ref
+  const debouncedVoteRef = React.useRef(null);
 
   // Initialize Auth on Mount
   useEffect(() => {
@@ -280,6 +312,7 @@ export default function PollPage() {
       const userData = JSON.parse(storedUser);
       setUser(userData);
       connectSocket(storedToken);
+      // Immediately show Landing/Join if we have a user
       setView("LANDING");
     } else {
       setView("LOGIN");
@@ -350,6 +383,7 @@ export default function PollPage() {
         description: pollData.description,
         options: pollData.options,
         votes: pollData.results,
+        detailedVotes: pollData.detailedVotes || {},
       });
       setSelectedOption(userPreviousVote);
       setView("POLL");
@@ -362,8 +396,16 @@ export default function PollPage() {
       setToast(`${username} joined the poll`);
     });
 
-    socket.on("update_votes", (updatedVotes) => {
-      setPollData((prev) => ({ ...prev, votes: updatedVotes }));
+    socket.on("update_users", (users) => {
+      setActiveUsers(users);
+    });
+
+    socket.on("update_votes", ({ results, detailedVotes }) => {
+      setPollData((prev) => ({
+        ...prev,
+        votes: results,
+        detailedVotes: detailedVotes,
+      }));
     });
 
     socket.on("error", (msg) => {
@@ -378,6 +420,7 @@ export default function PollPage() {
       socket.off("poll_created");
       socket.off("poll_joined");
       socket.off("user_joined");
+      socket.off("update_users");
       socket.off("update_votes");
       socket.off("error");
     };
@@ -409,13 +452,23 @@ export default function PollPage() {
   };
 
   const handleVoteClick = (option) => {
-    if (selectedOption === option) {
-      socket.emit("retract_vote");
-      setSelectedOption(null);
-    } else {
-      socket.emit("cast_vote", option);
-      setSelectedOption(option);
+    // 1. Optimistic UI Update
+    const isRetracting = selectedOption === option;
+    const newSelection = isRetracting ? null : option;
+    setSelectedOption(newSelection);
+
+    // 2. Debounce Server Call
+    if (debouncedVoteRef.current) {
+      clearTimeout(debouncedVoteRef.current);
     }
+
+    debouncedVoteRef.current = setTimeout(() => {
+      if (isRetracting) {
+        socket.emit("retract_vote");
+      } else {
+        socket.emit("cast_vote", option);
+      }
+    }, 500); // 500ms debounce
   };
 
   // Helper for Create Form
@@ -608,8 +661,9 @@ export default function PollPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 sm:p-8 flex flex-col items-center justify-center font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden">
+    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 sm:p-8 flex flex-col items-center justify-center font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden lg:pr-64">
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      <ActiveUsersSidebar users={activeUsers} />
       <button
         onClick={() => {
           setView("LANDING");
@@ -620,19 +674,38 @@ export default function PollPage() {
         ← Back
       </button>
 
-      <div className="absolute top-4 right-4 md:top-6 md:right-6 bg-slate-800/80 px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-purple-500/30 flex items-center gap-2 backdrop-blur-md">
-        <span className="text-[10px] md:text-xs text-slate-400 uppercase tracking-wider">
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(pollId);
+          setToast("Poll ID copied!");
+        }}
+        className="absolute top-4 right-4 md:top-6 md:right-6 bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-purple-500/30 flex items-center gap-2 backdrop-blur-md transition-all group active:scale-95"
+      >
+        <span className="text-[10px] md:text-xs text-slate-400 uppercase tracking-wider group-hover:text-slate-300">
           Poll ID:
         </span>
-        <span className="font-mono font-bold text-sm md:text-base text-purple-300 select-all">
+        <span className="font-mono font-bold text-sm md:text-base text-purple-300 group-hover:text-purple-200">
           {pollId}
         </span>
-      </div>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-4 w-4 text-slate-500 group-hover:text-white ml-1 transition-colors"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+          />
+        </svg>
+      </button>
 
       <div className="w-full max-w-4xl flex flex-col items-center animate-fade-in-up pt-12 md:pt-0">
         <header className="text-center mb-6 md:mb-8 relative px-4">
-          <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg blur opacity-25 animate-pulse hidden md:block"></div>
-          <h1 className="relative text-3xl md:text-5xl lg:text-6xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 drop-shadow-sm tracking-tight break-words max-w-3xl">
+          <h1 className="relative text-3xl md:text-5xl lg:text-6xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 tracking-tight break-words max-w-3xl">
             {pollData.title}
           </h1>
           <p className="relative text-purple-200 uppercase tracking-[0.2em] text-[10px] md:text-xs lg:text-sm font-semibold opacity-80 break-words max-w-2xl">
@@ -641,8 +714,46 @@ export default function PollPage() {
         </header>
 
         <div className="w-full bg-slate-900/50 backdrop-blur-xl border border-slate-700/50 p-4 md:p-6 rounded-3xl shadow-2xl mb-8 md:mb-12 h-64 md:h-80 relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none"></div>
+          <div className="absolute inset-0 bg-linear-to-br from-purple-500/5 to-transparent pointer-events-none"></div>
           <Bar data={data} options={chartOptions} />
+        </div>
+
+        {/* Detailed Votes Section */}
+        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+          {pollData.options.map((option, idx) => {
+            const voters = pollData.detailedVotes?.[option] || [];
+            return (
+              <div
+                key={idx}
+                className="bg-slate-900/40 border border-slate-700/30 p-4 rounded-2xl"
+              >
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-slate-200 truncate pr-2">
+                    {option}
+                  </h3>
+                  <span className="bg-slate-800 text-slate-400 text-xs px-2 py-1 rounded-lg">
+                    {voters.length} votes
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {voters.length > 0 ? (
+                    voters.map((voter, vIdx) => (
+                      <span
+                        key={vIdx}
+                        className="text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-1 rounded-md"
+                      >
+                        {voter}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-slate-600 italic">
+                      No votes yet
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-6 px-2">

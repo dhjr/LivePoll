@@ -3,15 +3,14 @@ const http = require("http");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const connectDB = require("./db");
-const Poll = require("./models/Poll");
 require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
 
-// Connect to Database
-connectDB();
+// In-memory storage for polls
+// Structure: { [pollId]: { title, description, options, results: { option: count }, userVotes: [{ userId, username, option }], createdBy, createdAt } }
+const polls = {};
 
 const SECRET_KEY = process.env.JWT_SECRET || "your-secret-key-change-this";
 
@@ -93,14 +92,24 @@ io.on("connection", (socket) => {
   const { userId, username } = socket.user;
   console.log(`User connected: ${username} (${userId})`);
 
-  // Helper to remove vote if user disconnects (Optional - simplified for Guest Mode)
-  // In a robust "Guest" system, we might NOT want to remove votes on disconnect
-  // immediately if we want to allow reconnects.
-  // However, for "live" polling where presence matters, we often keep the vote
-  // UNLESS explicitly retracted, or we treat them as persistent.
-  // The user requested: "if we refresh the page, it shouldn't be an issue".
-  // So we should NOT remove votes on disconnect/refresh automatically,
-  // because the user will reconnect with the SAME token/userId.
+  // Helper to broadcast active users in a room
+  const broadcastRoomUsers = async (pollId) => {
+    try {
+      const sockets = await io.in(`poll_${pollId}`).fetchSockets();
+      const users = sockets.map((s) => ({
+        userId: s.user.userId,
+        username: s.user.username,
+      }));
+      // Remove duplicates (if any, though userId should be unique per socket)
+      const uniqueUsers = Array.from(new Set(users.map((u) => u.userId))).map(
+        (id) => users.find((u) => u.userId === id),
+      );
+
+      io.to(`poll_${pollId}`).emit("update_users", uniqueUsers);
+    } catch (err) {
+      console.error("Error broadcasting room users:", err);
+    }
+  };
 
   // Helpers to get current room/poll
   const getPollId = () => {
@@ -110,9 +119,22 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${username}`);
+    if (socket.currentPollId) {
+      broadcastRoomUsers(socket.currentPollId);
+    }
   });
 
-  socket.on("create_poll", async (data) => {
+  // Helper to calculate results dynamically
+  const calculateResults = (poll) => {
+    const results = {};
+    poll.options.forEach((opt) => (results[opt] = 0));
+    poll.userVotes.forEach((v) => {
+      if (results[v.option] !== undefined) results[v.option]++;
+    });
+    return results;
+  };
+
+  socket.on("create_poll", (data) => {
     try {
       // Validate unique options
       const uniqueOptions = new Set(data.options);
@@ -122,49 +144,61 @@ io.on("connection", (socket) => {
       }
 
       const pollId = generatePollId();
+      // Initial results are empty/zero
       const initialResults = {};
       data.options.forEach((opt) => (initialResults[opt] = 0));
 
-      const newPoll = new Poll({
+      const newPoll = {
         pollId,
         title: data.title,
         description: data.description,
         options: data.options,
         results: initialResults,
-        userVotes: [], // Stores { userId, option }
-        createdBy: userId, // Track creator
+        userVotes: [],
+        createdBy: userId,
         createdAt: new Date(),
-      });
+      };
 
-      await newPoll.save();
+      polls[pollId] = newPoll;
 
       socket.join(`poll_${pollId}`);
-      // Helper to convert Map to Object for frontend
-      const pollData = newPoll.toObject();
+      socket.currentPollId = pollId;
+      broadcastRoomUsers(pollId);
 
+      // Send back everything except detailed user votes to creator initially
       socket.emit("poll_created", {
         pollId,
-        pollData: { ...pollData, userVotes: undefined },
+        pollData: { ...newPoll, userVotes: undefined },
       });
-      console.log(`Poll created (DB): ${pollId} by ${username}`);
+      console.log(`Poll created (In-Memory): ${pollId} by ${username}`);
     } catch (err) {
       console.error("Error creating poll:", err);
       socket.emit("error", "Failed to create poll");
     }
   });
 
-  socket.on("join_poll", async (pollId) => {
+  socket.on("join_poll", (pollId) => {
     try {
-      const poll = await Poll.findOne({ pollId });
+      const poll = polls[pollId];
 
       if (poll) {
         socket.join(`poll_${pollId}`);
+        socket.currentPollId = pollId;
 
-        // Notify others in the room
+        // Notify others
         socket.to(`poll_${pollId}`).emit("user_joined", { username });
+        broadcastRoomUsers(pollId);
 
-        // Find if this user voted
         const voteEntry = poll.userVotes.find((v) => v.userId === userId);
+        const dynamicResults = calculateResults(poll);
+
+        const detailedVotes = {};
+        poll.options.forEach((opt) => (detailedVotes[opt] = []));
+        poll.userVotes.forEach((v) => {
+          if (detailedVotes[v.option]) {
+            detailedVotes[v.option].push(v.username);
+          }
+        });
 
         socket.emit("poll_joined", {
           pollId,
@@ -172,7 +206,8 @@ io.on("connection", (socket) => {
             title: poll.title,
             description: poll.description,
             options: poll.options,
-            results: poll.results, // Mongoose Map becomes object-like in JSON
+            results: dynamicResults,
+            detailedVotes: detailedVotes,
           },
           userPreviousVote: voteEntry ? voteEntry.option : null,
         });
@@ -186,68 +221,72 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("cast_vote", async (option) => {
+  socket.on("cast_vote", (option) => {
     const pollId = getPollId();
     if (!pollId) return;
 
     try {
-      const poll = await Poll.findOne({ pollId });
-      if (!poll) return;
+      const poll = polls[pollId];
+      if (poll) {
+        // Remove existing vote if any
+        const existingVoteIndex = poll.userVotes.findIndex(
+          (v) => v.userId === userId,
+        );
 
-      // 1. Remove old vote if exists
-      const oldVoteIndex = poll.userVotes.findIndex((v) => v.userId === userId);
+        if (existingVoteIndex !== -1) {
+          // Update vote
+          poll.userVotes[existingVoteIndex].option = option;
+        } else {
+          // Add new vote
+          poll.userVotes.push({ userId, username, option });
+        }
 
-      if (oldVoteIndex !== -1) {
-        const oldVote = poll.userVotes[oldVoteIndex];
-        const oldOption = oldVote.option;
+        const results = calculateResults(poll);
+        // poll.results = results; // Update cached results (in memory object reference is enough for calculation)
 
-        // Decrement result
-        // Mongoose Map .get() / .set()
-        const currentCount = poll.results.get(oldOption) || 0;
-        poll.results.set(oldOption, Math.max(0, currentCount - 1));
+        // For detailed votes (who voted for what), we can construct it if needed by frontend
+        // But current frontend logic mostly cares about counts in 'results'
+        // If frontend needs detailed list of names per option:
+        const detailedVotes = {};
+        poll.options.forEach((opt) => (detailedVotes[opt] = []));
+        poll.userVotes.forEach((v) => {
+          if (detailedVotes[v.option]) detailedVotes[v.option].push(v.username);
+        });
 
-        // Remove the old entry
-        poll.userVotes.splice(oldVoteIndex, 1);
+        io.to(`poll_${pollId}`).emit("update_votes", {
+          results,
+          detailedVotes,
+        });
+        console.log(`Vote cast by ${username} in poll ${pollId}`);
       }
-
-      // 2. Add new vote
-      const currentOptionCount = poll.results.get(option) || 0;
-      poll.results.set(option, currentOptionCount + 1);
-      poll.userVotes.push({ userId, option });
-
-      await poll.save();
-
-      io.to(`poll_${pollId}`).emit("update_votes", poll.results);
-      console.log(`Vote cast manually by ${username} in poll ${pollId}`);
     } catch (err) {
       console.error("Error casting vote:", err);
     }
   });
 
-  socket.on("retract_vote", async () => {
+  socket.on("retract_vote", () => {
     const pollId = getPollId();
     if (!pollId) return;
 
     try {
-      const poll = await Poll.findOne({ pollId });
-      if (!poll) return;
+      const poll = polls[pollId];
+      if (poll) {
+        // Remove vote
+        poll.userVotes = poll.userVotes.filter((v) => v.userId !== userId);
 
-      const voteEntryIndex = poll.userVotes.findIndex(
-        (v) => v.userId === userId,
-      );
+        const results = calculateResults(poll);
+        // poll.results = results;
 
-      if (voteEntryIndex !== -1) {
-        const voteEntry = poll.userVotes[voteEntryIndex];
-        const oldOption = voteEntry.option;
+        const detailedVotes = {};
+        poll.options.forEach((opt) => (detailedVotes[opt] = []));
+        poll.userVotes.forEach((v) => {
+          if (detailedVotes[v.option]) detailedVotes[v.option].push(v.username);
+        });
 
-        const currentCount = poll.results.get(oldOption) || 0;
-        poll.results.set(oldOption, Math.max(0, currentCount - 1));
-
-        poll.userVotes.splice(voteEntryIndex, 1);
-
-        await poll.save();
-
-        io.to(`poll_${pollId}`).emit("update_votes", poll.results);
+        io.to(`poll_${pollId}`).emit("update_votes", {
+          results,
+          detailedVotes,
+        });
         console.log(`Vote retracted by ${username} in poll ${pollId}`);
       }
     } catch (err) {
@@ -260,7 +299,9 @@ io.on("connection", (socket) => {
     const pollId = getPollId();
     if (pollId) {
       socket.leave(`poll_${pollId}`);
+      socket.currentPollId = null;
       console.log(`User ${username} left poll: ${pollId}`);
+      broadcastRoomUsers(pollId);
     }
   });
 });
