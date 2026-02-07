@@ -3,49 +3,110 @@ const http = require("http");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
+const Redis = require("ioredis");
 require("dotenv").config();
+
+// --- Configuration ---
+const PORT = process.env.PORT || 3001;
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const JWT_SECRET = process.env.JWT_SECRET; // Must be set in .env
+const POLL_EXPIRY = 86400; // 24 hours in seconds
+
+if (!JWT_SECRET) {
+  console.error("❌ FATAL: JWT_SECRET is not defined in .env");
+  process.exit(1);
+}
 
 const app = express();
 const server = http.createServer(app);
 
-// In-memory storage for polls
-// Structure: { [pollId]: { title, description, options, results: { option: count }, userVotes: [{ userId, username, option }], createdBy, createdAt } }
-const polls = {};
+// Redis Client
+// Redis is used as the "Source of Truth" for all poll data.
+// It persists data even if this server restarts.
+const redis = new Redis(REDIS_URL);
 
-const SECRET_KEY = process.env.JWT_SECRET || "your-secret-key-change-this";
+redis.on("connect", () => console.log("✅ Redis connected"));
+redis.on("error", (err) => console.error("❌ Redis error:", err));
+
+// Configuration
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
+  : [];
+
+console.log("Allowed Origins:", allowedOrigins);
 
 // Middleware
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(",")
-      : [
-          "http://localhost:3000",
-          "http://192.168.0.106:3000",
-          "http://10.135.184.72:3000",
-          "http://192.168.31.235:3000",
-        ],
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
+    credentials: true,
   }),
 );
 app.use(express.json());
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(",")
-      : [
-          "http://localhost:3000",
-          "http://192.168.0.106:3000",
-          "http://10.135.184.72:3000",
-          "http://192.168.31.235:3000",
-        ],
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
+// --- Helper Functions ---
+
 const generatePollId = () =>
   Math.random().toString(36).substring(2, 8).toUpperCase();
+
+/**
+ * Calculates poll results (counts per option) from the list of user votes.
+ */
+const calculateResults = (poll) => {
+  const results = {};
+  poll.options.forEach((opt) => (results[opt] = 0));
+  poll.userVotes.forEach((v) => {
+    if (results[v.option] !== undefined) results[v.option]++;
+  });
+  return results;
+};
+
+/**
+ * Organizes votes by option to show who voted for what.
+ */
+const getDetailedVotes = (poll) => {
+  const detailedVotes = {};
+  poll.options.forEach((opt) => (detailedVotes[opt] = []));
+  poll.userVotes.forEach((v) => {
+    if (detailedVotes[v.option]) {
+      detailedVotes[v.option].push(v.username);
+    }
+  });
+  return detailedVotes;
+};
+
+// --- Redis Data Access Layer ---
+
+/**
+ * Retrieves a poll object from Redis by ID.
+ * Redis Key: "poll:{pollId}" -> Value: JSON String
+ */
+const getPollFromRedis = async (pollId) => {
+  const data = await redis.get(`poll:${pollId}`);
+  return data ? JSON.parse(data) : null;
+};
+
+/**
+ * Saves or updates a poll object in Redis.
+ * Sets an expiration time so old polls don't clog up memory forever.
+ */
+const savePollToRedis = async (pollId, pollData) => {
+  await redis.set(
+    `poll:${pollId}`,
+    JSON.stringify(pollData),
+    "EX",
+    POLL_EXPIRY,
+  );
+};
 
 // --- HTTP Routes ---
 
@@ -61,8 +122,8 @@ app.post("/login", (req, res) => {
   const userId = `${username}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
   // Create Token
-  const token = jwt.sign({ userId, username }, SECRET_KEY, {
-    expiresIn: "24h",
+  const token = jwt.sign({ userId, username }, JWT_SECRET, {
+    expiresIn: "1m", // Token expires in 1 minute (as per your request)
   });
 
   res.json({ token, userId, username });
@@ -77,7 +138,7 @@ io.use((socket, next) => {
     return next(new Error("Authentication error: No token provided"));
   }
 
-  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
       return next(new Error("Authentication error: Invalid token"));
     }
@@ -100,7 +161,7 @@ io.on("connection", (socket) => {
         userId: s.user.userId,
         username: s.user.username,
       }));
-      // Remove duplicates (if any, though userId should be unique per socket)
+      // Remove duplicates
       const uniqueUsers = Array.from(new Set(users.map((u) => u.userId))).map(
         (id) => users.find((u) => u.userId === id),
       );
@@ -111,7 +172,6 @@ io.on("connection", (socket) => {
     }
   };
 
-  // Helpers to get current room/poll
   const getPollId = () => {
     const room = Array.from(socket.rooms).find((r) => r.startsWith("poll_"));
     return room ? room.split("_")[1] : null;
@@ -124,19 +184,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Helper to calculate results dynamically
-  const calculateResults = (poll) => {
-    const results = {};
-    poll.options.forEach((opt) => (results[opt] = 0));
-    poll.userVotes.forEach((v) => {
-      if (results[v.option] !== undefined) results[v.option]++;
-    });
-    return results;
-  };
-
-  socket.on("create_poll", (data) => {
+  // --- 1. Create Poll ---
+  socket.on("create_poll", async (data) => {
     try {
-      // Validate unique options
+      // Logic: Validate inputs
       const uniqueOptions = new Set(data.options);
       if (uniqueOptions.size !== data.options.length) {
         socket.emit("error", "Poll options must be unique");
@@ -144,7 +195,6 @@ io.on("connection", (socket) => {
       }
 
       const pollId = generatePollId();
-      // Initial results are empty/zero
       const initialResults = {};
       data.options.forEach((opt) => (initialResults[opt] = 0));
 
@@ -154,51 +204,43 @@ io.on("connection", (socket) => {
         description: data.description,
         options: data.options,
         results: initialResults,
-        userVotes: [],
+        userVotes: [], // Array to track individual votes: [{ userId, username, option }]
         createdBy: userId,
         createdAt: new Date(),
       };
 
-      polls[pollId] = newPoll;
+      // Redis Operation: Save the new poll object
+      await savePollToRedis(pollId, newPoll);
 
       socket.join(`poll_${pollId}`);
       socket.currentPollId = pollId;
       broadcastRoomUsers(pollId);
 
-      // Send back everything except detailed user votes to creator initially
       socket.emit("poll_created", {
         pollId,
         pollData: { ...newPoll, userVotes: undefined },
       });
-      console.log(`Poll created (In-Memory): ${pollId} by ${username}`);
+      console.log(`Poll created (Redis): ${pollId} by ${username}`);
     } catch (err) {
       console.error("Error creating poll:", err);
       socket.emit("error", "Failed to create poll");
     }
   });
 
-  socket.on("join_poll", (pollId) => {
+  // --- 2. Join Poll ---
+  socket.on("join_poll", async (pollId) => {
     try {
-      const poll = polls[pollId];
+      // Redis Operation: Fetch poll data
+      const poll = await getPollFromRedis(pollId);
 
       if (poll) {
         socket.join(`poll_${pollId}`);
         socket.currentPollId = pollId;
 
-        // Notify others
         socket.to(`poll_${pollId}`).emit("user_joined", { username });
         broadcastRoomUsers(pollId);
 
         const voteEntry = poll.userVotes.find((v) => v.userId === userId);
-        const dynamicResults = calculateResults(poll);
-
-        const detailedVotes = {};
-        poll.options.forEach((opt) => (detailedVotes[opt] = []));
-        poll.userVotes.forEach((v) => {
-          if (detailedVotes[v.option]) {
-            detailedVotes[v.option].push(v.username);
-          }
-        });
 
         socket.emit("poll_joined", {
           pollId,
@@ -206,8 +248,8 @@ io.on("connection", (socket) => {
             title: poll.title,
             description: poll.description,
             options: poll.options,
-            results: dynamicResults,
-            detailedVotes: detailedVotes,
+            results: calculateResults(poll),
+            detailedVotes: getDetailedVotes(poll),
           },
           userPreviousVote: voteEntry ? voteEntry.option : null,
         });
@@ -221,41 +263,34 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("cast_vote", (option) => {
+  // --- 3. Cast Vote ---
+  socket.on("cast_vote", async (option) => {
     const pollId = getPollId();
     if (!pollId) return;
 
     try {
-      const poll = polls[pollId];
+      // Redis: Get latest state
+      const poll = await getPollFromRedis(pollId);
+
       if (poll) {
-        // Remove existing vote if any
+        // Logic: Add or Update vote
         const existingVoteIndex = poll.userVotes.findIndex(
           (v) => v.userId === userId,
         );
 
         if (existingVoteIndex !== -1) {
-          // Update vote
           poll.userVotes[existingVoteIndex].option = option;
         } else {
-          // Add new vote
           poll.userVotes.push({ userId, username, option });
         }
 
-        const results = calculateResults(poll);
-        // poll.results = results; // Update cached results (in memory object reference is enough for calculation)
+        // Redis: Save updated state
+        await savePollToRedis(pollId, poll);
 
-        // For detailed votes (who voted for what), we can construct it if needed by frontend
-        // But current frontend logic mostly cares about counts in 'results'
-        // If frontend needs detailed list of names per option:
-        const detailedVotes = {};
-        poll.options.forEach((opt) => (detailedVotes[opt] = []));
-        poll.userVotes.forEach((v) => {
-          if (detailedVotes[v.option]) detailedVotes[v.option].push(v.username);
-        });
-
+        // Broadcast updates
         io.to(`poll_${pollId}`).emit("update_votes", {
-          results,
-          detailedVotes,
+          results: calculateResults(poll),
+          detailedVotes: getDetailedVotes(poll),
         });
         console.log(`Vote cast by ${username} in poll ${pollId}`);
       }
@@ -264,28 +299,25 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("retract_vote", () => {
+  // --- 4. Retract Vote ---
+  socket.on("retract_vote", async () => {
     const pollId = getPollId();
     if (!pollId) return;
 
     try {
-      const poll = polls[pollId];
+      // Redis: Get latest state
+      const poll = await getPollFromRedis(pollId);
+
       if (poll) {
-        // Remove vote
+        // Logic: Remove vote
         poll.userVotes = poll.userVotes.filter((v) => v.userId !== userId);
 
-        const results = calculateResults(poll);
-        // poll.results = results;
-
-        const detailedVotes = {};
-        poll.options.forEach((opt) => (detailedVotes[opt] = []));
-        poll.userVotes.forEach((v) => {
-          if (detailedVotes[v.option]) detailedVotes[v.option].push(v.username);
-        });
+        // Redis: Save updated state
+        await savePollToRedis(pollId, poll);
 
         io.to(`poll_${pollId}`).emit("update_votes", {
-          results,
-          detailedVotes,
+          results: calculateResults(poll),
+          detailedVotes: getDetailedVotes(poll),
         });
         console.log(`Vote retracted by ${username} in poll ${pollId}`);
       }
@@ -294,7 +326,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Explicit Leave Poll
   socket.on("leave_poll", () => {
     const pollId = getPollId();
     if (pollId) {
@@ -306,5 +337,4 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));

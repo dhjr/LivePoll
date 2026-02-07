@@ -10,6 +10,7 @@ const BACKEND_URL =
 
 const socket = io(BACKEND_URL, {
   autoConnect: false, // Wait for token
+  withCredentials: true,
 });
 
 // 1. Login Component
@@ -252,26 +253,26 @@ const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
 
 // Active Users Sidebar
 const ActiveUsersSidebar = ({ users }) => (
-  <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-slate-900/90 backdrop-blur-xl border-l border-slate-700/50 p-6 overflow-y-auto animate-fade-in-right z-40">
-    <h3 className="text-xl font-bold bg-linear-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-6">
-      Active Users
-      <span className="ml-2 text-sm text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
+  <div className="fixed z-40 bg-slate-900/90 backdrop-blur-xl border-slate-700/50 p-4 transition-all lg:top-0 lg:bottom-0 lg:left-0 lg:w-64 lg:border-r lg:border-t-0 bottom-0 left-0 right-0 h-auto max-h-48 border-t overflow-y-auto w-full lg:h-full animate-fade-in-right lg:block flex flex-col">
+    <h3 className="text-sm lg:text-xl font-bold bg-linear-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-3 lg:mb-6 flex items-center justify-between sticky top-0 bg-slate-900/95 py-2 z-10">
+      <span>Active Users</span>
+      <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
         {users.length}
       </span>
     </h3>
-    <div className="space-y-3">
+    <div className="flex lg:flex-col gap-3 overflow-x-auto lg:overflow-x-hidden pb-2 lg:pb-0">
       {users.map((u, idx) => (
         <div
           key={idx}
-          className="flex items-center gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-700/30"
+          className="flex-shrink-0 lg:flex-shrink w-40 lg:w-auto flex items-center gap-3 bg-slate-800/50 p-2 lg:p-3 rounded-xl border border-slate-700/30"
         >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xs font-bold text-white uppercase shadow-lg">
+          <div className="w-6 h-6 lg:w-8 lg:h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-[10px] lg:text-xs font-bold text-white uppercase shadow-lg">
             {u.username.charAt(0)}
           </div>
-          <span className="text-sm font-medium text-slate-300 truncate">
+          <span className="text-xs lg:text-sm font-medium text-slate-300 truncate">
             {u.username}
           </span>
-          <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] ml-auto"></div>
+          <div className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] ml-auto"></div>
         </div>
       ))}
     </div>
@@ -661,7 +662,7 @@ export default function PollPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 sm:p-8 flex flex-col items-center justify-center font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden lg:pr-64">
+    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 sm:p-8 flex flex-col items-center justify-center font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden lg:pl-64 pb-24 lg:pb-0">
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
       <ActiveUsersSidebar users={activeUsers} />
       <button
