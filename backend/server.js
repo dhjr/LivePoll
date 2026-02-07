@@ -24,6 +24,7 @@ app.use(
           "http://localhost:3000",
           "http://192.168.0.106:3000",
           "http://10.135.184.72:3000",
+          "http://192.168.31.235:3000",
         ],
     methods: ["GET", "POST"],
   }),
@@ -38,6 +39,7 @@ const io = new Server(server, {
           "http://localhost:3000",
           "http://192.168.0.106:3000",
           "http://10.135.184.72:3000",
+          "http://192.168.31.235:3000",
         ],
     methods: ["GET", "POST"],
   },
@@ -157,6 +159,9 @@ io.on("connection", (socket) => {
 
       if (poll) {
         socket.join(`poll_${pollId}`);
+
+        // Notify others in the room
+        socket.to(`poll_${pollId}`).emit("user_joined", { username });
 
         // Find if this user voted
         const voteEntry = poll.userVotes.find((v) => v.userId === userId);

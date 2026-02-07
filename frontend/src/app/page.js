@@ -92,6 +92,45 @@ const LoginView = ({ onJoin }) => {
   );
 };
 
+// Toast Notification Component
+const Toast = ({ message, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed top-20 right-4 z-50 animate-fade-in-right">
+      <div className="bg-slate-800/90 backdrop-blur-md border border-purple-500/30 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3">
+        <div className="bg-purple-500/20 p-2 rounded-full">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 text-purple-400"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
+        <div>
+          <p className="font-bold text-sm">New Participant</p>
+          <p className="text-xs text-slate-300">{message}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="ml-2 text-slate-500 hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // 2. Landing Component (Options to Create or Join)
 const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
   const [joinId, setJoinId] = useState("");
@@ -224,6 +263,7 @@ export default function PollPage() {
   });
   const [selectedOption, setSelectedOption] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [toast, setToast] = useState(null); // { message }
 
   // Poll Creation Form State
   const [newTitle, setNewTitle] = useState("");
@@ -316,6 +356,12 @@ export default function PollPage() {
       setError(null);
     });
 
+    // Notify when new user joins
+    socket.on("user_joined", ({ username }) => {
+      console.log("User joined notification:", username);
+      setToast(`${username} joined the poll`);
+    });
+
     socket.on("update_votes", (updatedVotes) => {
       setPollData((prev) => ({ ...prev, votes: updatedVotes }));
     });
@@ -331,6 +377,7 @@ export default function PollPage() {
       socket.off("disconnect");
       socket.off("poll_created");
       socket.off("poll_joined");
+      socket.off("user_joined");
       socket.off("update_votes");
       socket.off("error");
     };
@@ -393,7 +440,8 @@ export default function PollPage() {
 
   if (view === "LANDING") {
     return (
-      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 md:p-6 flex flex-col items-center justify-center font-sans overflow-y-auto">
+      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 md:p-6 flex flex-col items-center justify-center font-sans overflow-y-auto relative">
+        {toast && <Toast message={toast} onClose={() => setToast(null)} />}
         {showCreateForm ? (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-purple-500/30 p-6 md:p-8 rounded-3xl w-full max-w-lg shadow-[0_0_50px_rgba(168,85,247,0.2)] overflow-y-auto max-h-[90vh]">
@@ -561,6 +609,7 @@ export default function PollPage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 sm:p-8 flex flex-col items-center justify-center font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden">
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
       <button
         onClick={() => {
           setView("LANDING");
