@@ -7,11 +7,11 @@ const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
   return (
     <div className="w-full max-w-md transition-all duration-300 animate-fade-in-up px-4">
       <header className="text-center mb-8 md:mb-10">
-        <h1 className="text-4xl md:text-6xl font-black mb-3 text-transparent bg-clip-text bg-linear-to-r from-purple-400 to-pink-300 drop-shadow-sm tracking-tight">
+        <h1 className="text-4xl md:text-6xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300 drop-shadow-sm tracking-tight">
           LIVE POLL
         </h1>
         <div className="flex flex-col items-center gap-2">
-          <p className="text-purple-200 uppercase tracking-[0.2em] text-[10px] md:text-xs font-semibold opacity-80">
+          <p className="text-indigo-200 uppercase tracking-[0.2em] text-[10px] md:text-xs font-semibold opacity-80">
             Welcome,{" "}
             <span className="text-white font-bold">{user?.username}</span>
           </p>
@@ -28,10 +28,10 @@ const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
         {/* Main Action Section (Center/Right) */}
         <div className={`w-full max-w-md mx-auto space-y-6`}>
           {/* Create Section */}
-          <div className="bg-slate-900/80 backdrop-blur-2xl border border-purple-500/20 p-6 md:p-8 rounded-4xl hover:border-purple-500/40 transition-all shadow-xl shadow-black/20 group">
+          <div className="bg-slate-900/80 backdrop-blur-2xl border border-indigo-500/20 p-6 md:p-8 rounded-4xl hover:border-indigo-500/40 transition-all shadow-xl shadow-black/20 group">
             <button
               onClick={onCreate}
-              className="w-full py-4 rounded-2xl font-bold bg-linear-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-900/30 group-hover:shadow-purple-900/50 hover:scale-[1.02] active:scale-[0.98] transition-all text-white text-lg flex items-center justify-center gap-2"
+              className="w-full py-4 rounded-2xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg shadow-indigo-900/30 group-hover:shadow-indigo-900/50 hover:scale-[1.02] active:scale-[0.98] transition-all text-white text-lg flex items-center justify-center gap-2"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -93,7 +93,7 @@ const LandingView = ({ onCreate, onJoinPoll, error, user, onLogout }) => {
                     onJoinPoll(joinId)
                   }
                   placeholder="ENTER CODE"
-                  className="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-10 pr-4 py-4 text-white text-center font-mono tracking-[0.2em] text-lg focus:outline-none focus:border-purple-500 focus:bg-slate-800 transition-colors uppercase placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-600"
+                  className="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-10 pr-4 py-4 text-white text-center font-mono tracking-[0.2em] text-lg focus:outline-none focus:border-indigo-500 focus:bg-slate-800 transition-colors uppercase placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-600"
                   maxLength={6}
                 />
               </div>

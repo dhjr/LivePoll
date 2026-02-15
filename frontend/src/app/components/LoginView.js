@@ -35,13 +35,13 @@ const LoginView = ({ onJoin, backendUrl }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 flex flex-col items-center justify-center p-4 text-white font-sans">
-      <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-2xl border border-purple-500/20 p-8 rounded-3xl shadow-2xl animate-fade-in-up">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 text-white font-sans">
+      <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-2xl border border-indigo-500/20 p-8 rounded-3xl shadow-2xl animate-fade-in-up">
         <header className="text-center mb-8">
-          <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-linear-to-r from-purple-400 to-pink-300 tracking-tight">
+          <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300 tracking-tight">
             LIVE POLL
           </h1>
-          <p className="text-purple-200 uppercase tracking-[0.2em] text-xs font-semibold opacity-80">
+          <p className="text-indigo-200 uppercase tracking-[0.2em] text-xs font-semibold opacity-80">
             Enter your name to join
           </p>
         </header>
@@ -58,7 +58,7 @@ const LoginView = ({ onJoin, backendUrl }) => {
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-4 text-white text-center font-bold text-lg focus:outline-none focus:border-purple-500 focus:bg-slate-800 transition-colors placeholder:text-slate-600 focus:placeholder-transparent"
+              className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-4 text-white text-center font-bold text-lg focus:outline-none focus:border-indigo-500 focus:bg-slate-800 transition-colors placeholder:text-slate-600 focus:placeholder-transparent"
               placeholder="Your Name"
               maxLength={15}
             />
@@ -66,7 +66,7 @@ const LoginView = ({ onJoin, backendUrl }) => {
           <button
             type="submit"
             disabled={isLoading || !name.trim()}
-            className={`w-full py-4 rounded-xl font-bold bg-linear-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-900/30 text-white text-lg transition-all ${
+            className={`w-full py-4 rounded-xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg shadow-indigo-900/30 text-white text-lg transition-all ${
               isLoading || !name.trim()
                 ? "opacity-50 cursor-not-allowed"
                 : "hover:scale-[1.02] active:scale-[0.98]"

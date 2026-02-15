@@ -18,14 +18,14 @@ const VoteCard = ({
       relative w-full rounded-2xl transition-all duration-300 overflow-hidden border-2 text-left group
       ${
         isSelected
-          ? "bg-purple-900/40 border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.2)] scale-[1.02]"
+          ? "bg-indigo-900/40 border-indigo-500 shadow-[0_0_30px_rgba(99,102,241,0.2)] scale-[1.02]"
           : "bg-slate-800/40 border-slate-700/50 hover:border-slate-600 hover:scale-[1.01]"
       }
     `}
     >
       {/* Background Progress Bar */}
       <div
-        className={`absolute inset-0 bg-purple-500/10 transition-all duration-1000 ease-out origin-left`}
+        className={`absolute inset-0 bg-indigo-500/10 transition-all duration-1000 ease-out origin-left`}
         style={{ width: `${percentage}%` }}
       ></div>
 
@@ -44,7 +44,7 @@ const VoteCard = ({
 
         {/* Stats Row */}
         <div className="flex items-center gap-3 mb-3">
-          <span className="text-2xl font-black text-purple-300">
+          <span className="text-2xl font-black text-indigo-300">
             {Math.round(percentage)}%
           </span>
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50 px-2 py-1 rounded-md border border-slate-700/50">

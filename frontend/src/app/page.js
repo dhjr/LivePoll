@@ -201,7 +201,7 @@ export default function PollPage() {
 
   if (view === "LANDING") {
     return (
-      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-slate-900 via-purple-950 to-slate-950 text-white p-4 md:p-6 flex flex-col items-center justify-center font-sans overflow-y-auto relative">
+      <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black text-white p-4 md:p-6 flex flex-col items-center justify-center font-sans overflow-y-auto relative">
         {toast && <Toast message={toast} onClose={() => setToast(null)} />}
 
         <CreatePollModal

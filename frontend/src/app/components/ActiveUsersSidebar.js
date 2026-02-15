@@ -17,7 +17,7 @@ const ActiveUsersSidebar = ({ users, currentUser }) => {
       `}</style>
       <h3 className="text-sm lg:text-lg font-bold text-white mb-3 lg:mb-6 flex items-center justify-between sticky top-0 bg-transparent py-2 z-10">
         <span className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           Active Users
         </span>
         <span className="text-xs font-bold text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700/50">
@@ -32,9 +32,9 @@ const ActiveUsersSidebar = ({ users, currentUser }) => {
             <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 pl-1">
               You
             </div>
-            <div className="flex items-center gap-3 p-3 rounded-xl border transition-all duration-300 bg-purple-500/10 border-purple-500/40 shadow-[0_0_20px_rgba(168,85,247,0.15)]">
+            <div className="flex items-center gap-3 p-3 rounded-xl border transition-all duration-300 bg-indigo-500/10 border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]">
               <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-linear-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-sm font-bold text-white uppercase shadow-lg ring-2 ring-black/20">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-500 flex items-center justify-center text-sm font-bold text-white uppercase shadow-lg ring-2 ring-black/20">
                   {currentUser.username.charAt(0)}
                 </div>
                 <div className="absolute -bottom-1 -right-1 bg-amber-400 text-slate-900 text-[9px] font-bold px-1.5 rounded-full border border-slate-900 shadow-sm leading-tight">

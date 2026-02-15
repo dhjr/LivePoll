@@ -31,7 +31,7 @@ const VoterDetailsSidebar = ({ option, voters, onClose }) => {
                   key={idx}
                   className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/30"
                 >
-                  <div className="w-8 h-8 rounded-full bg-linear-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-xs font-bold text-white uppercase shadow-sm">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-500 flex items-center justify-center text-xs font-bold text-white uppercase shadow-sm">
                     {v.charAt(0)}
                   </div>
                   <span className="text-slate-200 font-medium text-sm">

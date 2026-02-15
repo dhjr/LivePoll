@@ -9,11 +9,11 @@ const Toast = ({ message, onClose }) => {
 
   return (
     <div className="fixed top-20 right-4 z-50 animate-fade-in-right">
-      <div className="bg-slate-800/90 backdrop-blur-md border border-purple-500/30 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3">
-        <div className="bg-purple-500/20 p-2 rounded-full">
+      <div className="bg-slate-800/90 backdrop-blur-md border border-indigo-500/30 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3">
+        <div className="bg-indigo-500/20 p-2 rounded-full">
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5 text-purple-400"
+            className="h-5 w-5 text-indigo-400"
             viewBox="0 0 20 20"
             fill="currentColor"
           >

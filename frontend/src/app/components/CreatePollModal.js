@@ -1,4 +1,3 @@
-"use client";
 import React, { useState } from "react";
 
 const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
@@ -46,9 +45,9 @@ const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-100 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-purple-500/30 p-6 md:p-8 rounded-3xl w-full max-w-lg shadow-[0_0_50px_rgba(168,85,247,0.2)] overflow-y-auto max-h-[90vh]">
-        <h2 className="text-2xl md:text-3xl font-bold bg-linear-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-6">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-indigo-500/30 p-6 md:p-8 rounded-3xl w-full max-w-lg shadow-[0_0_50px_rgba(99,102,241,0.2)] overflow-y-auto max-h-[90vh]">
+        <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent mb-6">
           Create New Poll
         </h2>
 
@@ -78,7 +77,7 @@ const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              className="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm md:text-base"
+              className="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 text-sm md:text-base"
               placeholder="Poll Title"
             />
           </div>
@@ -89,7 +88,7 @@ const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
             <input
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
-              className="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm md:text-base"
+              className="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 text-sm md:text-base"
               placeholder="Description"
             />
           </div>
@@ -103,7 +102,7 @@ const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
                   <input
                     value={opt}
                     onChange={(e) => handleOptionChange(idx, e.target.value)}
-                    className="flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 text-sm md:text-base"
+                    className="flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500 text-sm md:text-base"
                     placeholder={`Option ${idx + 1}`}
                   />
                   {newOptions.length > 2 && (
@@ -121,7 +120,7 @@ const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
             <button
               type="button"
               onClick={handleAddOption}
-              className="mt-3 text-xs md:text-sm text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1"
+              className="mt-3 text-xs md:text-sm text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1"
             >
               + Add Option
             </button>
@@ -140,7 +139,7 @@ const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
             <button
               type="submit"
               disabled={!isFormValid}
-              className={`flex-1 px-6 py-3 rounded-xl font-bold transition-all text-sm md:text-base ${isFormValid ? "bg-linear-to-r from-purple-600 to-pink-600 shadow-lg" : "bg-slate-800 text-slate-500 cursor-not-allowed"}`}
+              className={`flex-1 px-6 py-3 rounded-xl font-bold transition-all text-sm md:text-base ${isFormValid ? "bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" : "bg-slate-800 text-slate-500 cursor-not-allowed"}`}
             >
               Launch
             </button>
