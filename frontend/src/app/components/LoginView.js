@@ -1,7 +1,11 @@
 "use client";
 import React, { useState } from "react";
 
-const LoginView = ({ onJoin, backendUrl }) => {
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  `http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:3001`;
+
+const LoginView = ({ onLogin, onJoin, backendUrl = BACKEND_URL }) => {
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -13,20 +17,30 @@ const LoginView = ({ onJoin, backendUrl }) => {
     setIsLoading(true);
     setError(null);
 
+    const handleCallback = onLogin || onJoin;
+
     try {
       const res = await fetch(`${backendUrl}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: name }),
+        body: JSON.stringify({ username: name.trim() }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get("content-type");
+      let data = {};
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        throw new Error(`Server connection error (${res.status}). Ensure backend is running on port 3001.`);
+      }
 
       if (!res.ok) {
         throw new Error(data.error || "Login failed");
       }
 
-      onJoin(data); // { token, userId, username }
+      if (handleCallback) {
+        handleCallback(data); // { token, userId, username }
+      }
     } catch (err) {
       setError(err.message);
     } finally {

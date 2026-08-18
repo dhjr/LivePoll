@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-const CreatePollModal = ({ isOpen, onClose, onSubmit }) => {
+const CreatePollModal = ({ isOpen = true, onClose, onSubmit }) => {
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newOptions, setNewOptions] = useState(["", ""]);

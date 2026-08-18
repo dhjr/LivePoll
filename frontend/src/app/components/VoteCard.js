@@ -4,73 +4,71 @@ import React from "react";
 const VoteCard = ({
   option,
   votes,
-  totalVotes,
+  count,
+  totalVotes = 0,
   isSelected,
   onVote,
-  voters,
+  voters = [],
 }) => {
-  const percentage = totalVotes ? (votes / totalVotes) * 100 : 0;
+  const voteCount = count !== undefined ? count : (votes || 0);
+  const percentage = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0;
 
   return (
     <button
       onClick={onVote}
       className={`
-      relative w-full rounded-2xl transition-all duration-300 overflow-hidden border-2 text-left group
+      relative inline-flex items-center justify-between rounded-xl transition-all duration-200 overflow-hidden border text-left group py-2 px-3.5 gap-3 shrink-0 flex-grow max-w-full
       ${
         isSelected
-          ? "bg-indigo-900/40 border-indigo-500 shadow-[0_0_30px_rgba(99,102,241,0.2)] scale-[1.02]"
-          : "bg-slate-800/40 border-slate-700/50 hover:border-slate-600 hover:scale-[1.01]"
+          ? "bg-indigo-950/70 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.25)] scale-[1.01]"
+          : "bg-slate-900/70 border-slate-800 hover:border-slate-700 hover:bg-slate-800/70"
       }
     `}
     >
       {/* Background Progress Bar */}
       <div
-        className={`absolute inset-0 bg-indigo-500/10 transition-all duration-1000 ease-out origin-left`}
+        className="absolute inset-0 bg-indigo-500/15 transition-all duration-500 ease-out origin-left pointer-events-none"
         style={{ width: `${percentage}%` }}
       ></div>
 
-      <div className="relative z-10 p-4">
-        {/* Header: Option */}
-        <div className="flex justify-between items-start gap-4 mb-3">
-          <span className="font-bold text-lg md:text-xl text-white leading-tight wrap-break-word flex-1">
+      <div className="relative z-10 flex items-center justify-between gap-3 w-full">
+        {/* Left: Option text & selected badge */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold text-xs sm:text-sm text-white truncate">
             {option}
           </span>
           {isSelected && (
-            <span className="shrink-0 text-[10px] font-bold bg-green-500/20 text-green-300 border border-green-500/30 px-2 py-1 rounded-full uppercase tracking-wider animate-fade-in">
-              Selected
+            <span className="shrink-0 text-[8px] font-extrabold bg-green-500/20 text-green-300 border border-green-500/40 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+              ✓ Selected
             </span>
           )}
         </div>
 
-        {/* Stats Row */}
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-2xl font-black text-indigo-300">
-            {Math.round(percentage)}%
-          </span>
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50 px-2 py-1 rounded-md border border-slate-700/50">
-            {votes} Votes
+        {/* Right: Voters Facepile & Vote Count */}
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
+          {voters.length > 0 && (
+            <div className="hidden sm:flex -space-x-1.5 overflow-hidden">
+              {voters.slice(0, 3).map((v, idx) => (
+                <div
+                  key={idx}
+                  className="h-4.5 w-4.5 rounded-full ring-1 ring-slate-900 bg-slate-700 flex items-center justify-center text-[7px] font-bold text-white uppercase"
+                  title={v}
+                >
+                  {v.charAt(0)}
+                </div>
+              ))}
+              {voters.length > 3 && (
+                <div className="h-4.5 w-4.5 rounded-full ring-1 ring-slate-900 bg-slate-800 flex items-center justify-center text-[7px] font-bold text-slate-400">
+                  +{voters.length - 3}
+                </div>
+              )}
+            </div>
+          )}
+
+          <span className="text-xs font-black text-indigo-300 bg-indigo-950/80 px-2 py-0.5 rounded-md border border-indigo-500/20">
+            {voteCount} {voteCount === 1 ? "Vote" : "Votes"}
           </span>
         </div>
-
-        {/* Facepile (Visual Only) */}
-        {voters.length > 0 && (
-          <div className="flex -space-x-2 overflow-hidden pt-2 border-t border-white/5">
-            {voters.slice(0, 5).map((v, idx) => (
-              <div
-                key={idx}
-                className="h-6 w-6 rounded-full ring-2 ring-slate-900 bg-slate-700 flex items-center justify-center text-[8px] font-bold text-white"
-                title={v}
-              >
-                {v.charAt(0)}
-              </div>
-            ))}
-            {voters.length > 5 && (
-              <div className="h-6 w-6 rounded-full ring-2 ring-slate-900 bg-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-400">
-                +{voters.length - 5}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </button>
   );
