@@ -1,4 +1,4 @@
-const redis = require("../config/redis");
+const { redis } = require("../config/redis");
 
 const POLL_EXPIRY = 86400; // 24 hours in seconds
 

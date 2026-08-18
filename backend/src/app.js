@@ -1,8 +1,10 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const { createAdapter } = require("@socket.io/redis-adapter");
 const cors = require("cors");
 
+const { pubClient, subClient } = require("./config/redis");
 const { login } = require("./controllers/authController");
 const { verifySocketToken } = require("./middleware/auth");
 const registerPollHandlers = require("./sockets/pollHandler");
@@ -29,7 +31,7 @@ app.use(express.json());
 // HTTP Routes
 app.post("/login", login);
 
-// Socket.IO Setup
+// Socket.IO Setup with Redis Pub/Sub Adapter
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -37,6 +39,9 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+
+// Attach Redis Pub/Sub Adapter for horizontal multi-instance scaling
+io.adapter(createAdapter(pubClient, subClient));
 
 // Middleware
 io.use(verifySocketToken);
