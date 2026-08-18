@@ -12,16 +12,29 @@ const registerPollHandlers = require("./sockets/pollHandler");
 const app = express();
 const server = http.createServer(app);
 
-// CORS configuration
-const allowedOrigins = process.env.CORS_ORIGIN
+// CORS configuration with dynamic local origin verification
+const envOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
   : [];
 
-console.log("Allowed Origins:", allowedOrigins);
+const corsOriginCheck = (origin, callback) => {
+  // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+  if (!origin) return callback(null, true);
+
+  // Allow any local development origin (localhost, 127.0.0.1, local LAN IPs) on any port
+  const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin);
+
+  if (isLocalhost || envOrigins.includes(origin) || envOrigins.includes("*")) {
+    return callback(null, true);
+  }
+
+  console.warn(`⚠️ Blocked by CORS: ${origin}`);
+  return callback(new Error(`CORS error: Origin ${origin} not allowed`));
+};
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: corsOriginCheck,
     methods: ["GET", "POST"],
     credentials: true,
   }),
@@ -34,7 +47,7 @@ app.post("/login", login);
 // Socket.IO Setup with Redis Pub/Sub Adapter
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: corsOriginCheck,
     methods: ["GET", "POST"],
     credentials: true,
   },
