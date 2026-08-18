@@ -1,0 +1,45 @@
+services:
+  # 1. Database Tier (Redis Cache & Data Store)
+  redis:
+    image: redis:alpine
+    container_name: livepoll-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # 2. Application Tier (Node.js + Socket.IO + Express Backend)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: livepoll-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=livePollProductionSecretKey123!
+      - CORS_ORIGIN=http://localhost:3000,http://127.0.0.1:3000
+    depends_on:
+      - redis
+
+  # 3. Presentation Tier (Next.js Frontend)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: livepoll-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+    depends_on:
+      - backend
+
+# Persistent Redis Data Volume
+volumes:
+  redis_data:
