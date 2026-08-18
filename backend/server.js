@@ -84,28 +84,157 @@ const getDetailedVotes = (poll) => {
   return detailedVotes;
 };
 
-// --- Redis Data Access Layer ---
+// --- Redis Data Access Layer (Atomic Hashes & Pipelines) ---
 
 /**
- * Retrieves a poll object from Redis by ID.
- * Redis Key: "poll:{pollId}" -> Value: JSON String
+ * Saves a new poll object in Redis using atomic Hash keys.
+ * Keys:
+ *   poll:{pollId}:meta -> Hash of metadata (title, description, options JSON, createdBy, createdAt)
+ *   poll:{pollId}:votes -> Hash of option -> voteCount (initialized to 0)
+ *   poll:{pollId}:uservotes -> Hash of userId -> JSON.stringify({ option, username })
  */
-const getPollFromRedis = async (pollId) => {
-  const data = await redis.get(`poll:${pollId}`);
-  return data ? JSON.parse(data) : null;
+const savePollToRedis = async (pollId, pollData) => {
+  const metaKey = `poll:${pollId}:meta`;
+  const votesKey = `poll:${pollId}:votes`;
+  const userVotesKey = `poll:${pollId}:uservotes`;
+
+  const pipeline = redis.pipeline();
+
+  pipeline.hset(metaKey, {
+    pollId: pollData.pollId,
+    title: pollData.title,
+    description: pollData.description || "",
+    options: JSON.stringify(pollData.options),
+    createdBy: pollData.createdBy,
+    createdAt: new Date(pollData.createdAt).toISOString(),
+  });
+  pipeline.expire(metaKey, POLL_EXPIRY);
+
+  const votesHash = {};
+  pollData.options.forEach((opt) => {
+    votesHash[opt] = 0;
+  });
+  pipeline.hset(votesKey, votesHash);
+  pipeline.expire(votesKey, POLL_EXPIRY);
+
+  pipeline.expire(userVotesKey, POLL_EXPIRY);
+
+  await pipeline.exec();
 };
 
 /**
- * Saves or updates a poll object in Redis.
- * Sets an expiration time so old polls don't clog up memory forever.
+ * Retrieves full poll state from Redis.
  */
-const savePollToRedis = async (pollId, pollData) => {
-  await redis.set(
-    `poll:${pollId}`,
-    JSON.stringify(pollData),
-    "EX",
-    POLL_EXPIRY,
-  );
+const getPollFromRedis = async (pollId) => {
+  const metaKey = `poll:${pollId}:meta`;
+  const votesKey = `poll:${pollId}:votes`;
+  const userVotesKey = `poll:${pollId}:uservotes`;
+
+  const [meta, votesRaw, userVotesRaw] = await Promise.all([
+    redis.hgetall(metaKey),
+    redis.hgetall(votesKey),
+    redis.hgetall(userVotesKey),
+  ]);
+
+  if (!meta || !meta.pollId) {
+    return null;
+  }
+
+  const options = meta.options ? JSON.parse(meta.options) : [];
+
+  const results = {};
+  options.forEach((opt) => {
+    results[opt] = parseInt((votesRaw && votesRaw[opt]) || "0", 10);
+  });
+
+  const userVotes = [];
+  const detailedVotes = {};
+  options.forEach((opt) => (detailedVotes[opt] = []));
+
+  Object.entries(userVotesRaw || {}).forEach(([uId, dataStr]) => {
+    try {
+      const voteData = JSON.parse(dataStr);
+      userVotes.push({
+        userId: uId,
+        username: voteData.username,
+        option: voteData.option,
+      });
+      if (detailedVotes[voteData.option]) {
+        detailedVotes[voteData.option].push(voteData.username);
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+  });
+
+  return {
+    pollId: meta.pollId,
+    title: meta.title,
+    description: meta.description,
+    options,
+    results,
+    detailedVotes,
+    userVotes,
+    createdBy: meta.createdBy,
+    createdAt: meta.createdAt,
+  };
+};
+
+/**
+ * Atomically casts or updates a vote to prevent Read-Modify-Write race conditions.
+ */
+const castVoteAtomic = async (pollId, userId, username, option) => {
+  const votesKey = `poll:${pollId}:votes`;
+  const userVotesKey = `poll:${pollId}:uservotes`;
+
+  const existingVoteStr = await redis.hget(userVotesKey, userId);
+  let oldOption = null;
+  if (existingVoteStr) {
+    try {
+      const existingVote = JSON.parse(existingVoteStr);
+      oldOption = existingVote.option;
+    } catch (e) {}
+  }
+
+  if (oldOption === option) {
+    return;
+  }
+
+  const pipeline = redis.pipeline();
+
+  if (oldOption) {
+    pipeline.hincrby(votesKey, oldOption, -1);
+  }
+
+  pipeline.hincrby(votesKey, option, 1);
+  pipeline.hset(userVotesKey, userId, JSON.stringify({ option, username }));
+
+  await pipeline.exec();
+};
+
+/**
+ * Atomically retracts a vote.
+ */
+const retractVoteAtomic = async (pollId, userId) => {
+  const votesKey = `poll:${pollId}:votes`;
+  const userVotesKey = `poll:${pollId}:uservotes`;
+
+  const existingVoteStr = await redis.hget(userVotesKey, userId);
+  if (!existingVoteStr) return;
+
+  let oldOption = null;
+  try {
+    const existingVote = JSON.parse(existingVoteStr);
+    oldOption = existingVote.option;
+  } catch (e) {}
+
+  if (!oldOption) return;
+
+  const pipeline = redis.pipeline();
+  pipeline.hincrby(votesKey, oldOption, -1);
+  pipeline.hdel(userVotesKey, userId);
+
+  await pipeline.exec();
 };
 
 // --- HTTP Routes ---
@@ -248,8 +377,8 @@ io.on("connection", (socket) => {
             title: poll.title,
             description: poll.description,
             options: poll.options,
-            results: calculateResults(poll),
-            detailedVotes: getDetailedVotes(poll),
+            results: poll.results,
+            detailedVotes: poll.detailedVotes,
           },
           userPreviousVote: voteEntry ? voteEntry.option : null,
         });
@@ -269,30 +398,19 @@ io.on("connection", (socket) => {
     if (!pollId) return;
 
     try {
-      // Redis: Get latest state
+      // Atomic Redis operation to prevent race conditions
+      await castVoteAtomic(pollId, userId, username, option);
+
+      // Fetch fresh updated state
       const poll = await getPollFromRedis(pollId);
 
       if (poll) {
-        // Logic: Add or Update vote
-        const existingVoteIndex = poll.userVotes.findIndex(
-          (v) => v.userId === userId,
-        );
-
-        if (existingVoteIndex !== -1) {
-          poll.userVotes[existingVoteIndex].option = option;
-        } else {
-          poll.userVotes.push({ userId, username, option });
-        }
-
-        // Redis: Save updated state
-        await savePollToRedis(pollId, poll);
-
         // Broadcast updates
         io.to(`poll_${pollId}`).emit("update_votes", {
-          results: calculateResults(poll),
-          detailedVotes: getDetailedVotes(poll),
+          results: poll.results,
+          detailedVotes: poll.detailedVotes,
         });
-        console.log(`Vote cast by ${username} in poll ${pollId}`);
+        console.log(`Vote cast (Atomic Redis) by ${username} in poll ${pollId}`);
       }
     } catch (err) {
       console.error("Error casting vote:", err);
@@ -305,21 +423,18 @@ io.on("connection", (socket) => {
     if (!pollId) return;
 
     try {
-      // Redis: Get latest state
+      // Atomic Redis operation
+      await retractVoteAtomic(pollId, userId);
+
+      // Fetch fresh updated state
       const poll = await getPollFromRedis(pollId);
 
       if (poll) {
-        // Logic: Remove vote
-        poll.userVotes = poll.userVotes.filter((v) => v.userId !== userId);
-
-        // Redis: Save updated state
-        await savePollToRedis(pollId, poll);
-
         io.to(`poll_${pollId}`).emit("update_votes", {
-          results: calculateResults(poll),
-          detailedVotes: getDetailedVotes(poll),
+          results: poll.results,
+          detailedVotes: poll.detailedVotes,
         });
-        console.log(`Vote retracted by ${username} in poll ${pollId}`);
+        console.log(`Vote retracted (Atomic Redis) by ${username} in poll ${pollId}`);
       }
     } catch (err) {
       console.error("Error retracting vote:", err);
