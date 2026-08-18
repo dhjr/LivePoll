@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 
+import { addRecentPoll } from "../utils/recentPolls";
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   `http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:3001`;
@@ -68,6 +70,7 @@ export function usePollSocket(token) {
         votes: data.results || {},
         detailedVotes: data.detailedVotes || {},
       });
+      addRecentPoll({ pollId: newPollId, title: data.title });
       setError(null);
     });
 
@@ -81,6 +84,7 @@ export function usePollSocket(token) {
         detailedVotes: data.detailedVotes || {},
       });
       setUserPreviousVote(prevVote || null);
+      addRecentPoll({ pollId: joinedId, title: data.title });
       setError(null);
     });
 
